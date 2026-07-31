@@ -1,4 +1,4 @@
-# 1. ConfigMap: Simulates our Backend App Data and enables CORS
+# 1. ConfigMap: Simulates our Backend App Data
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,27 +7,23 @@ data:
   data.json: |
     {
       "status": "success",
-      "message": "Hello from the secure GKE Backend!",
+      "message": "Hello from the secure GKE Backend via Istio!",
       "database_status": "Connected to Cloud SQL via Private IP (Simulated)",
       "records": [
         {"id": 1, "name": "Chaitanya's Test Record"},
-        {"id": 2, "name": "GKE Rocks!"}
+        {"id": 2, "name": "Istio End-to-End Encryption works!"}
       ]
     }
   default.conf: |
     server {
       listen 80;
-      
-      # GCP Load Balancer Health Check requires a 200 OK response at the root path '/'
       location / {
         return 200 'Healthy';
         add_header Content-Type text/plain;
       }
-
       location /api/data {
         alias /usr/share/nginx/html/data.json;
         default_type application/json;
-        # CRITICAL for Frontend: This allows the browser to accept the data
         add_header Access-Control-Allow-Origin *;
       }
     }
@@ -67,22 +63,12 @@ spec:
         configMap:
           name: backend-data
 ---
-# BackendConfig to attach Cloud Armor WAF
-apiVersion: cloud.google.com/v1
-kind: BackendConfig
-metadata:
-  name: backend-waf-config
-spec:
-  securityPolicy:
-    name: "backend-standard-policy"
----
 # 3. Service: The internal IP address inside the cluster (ClusterIP)
 apiVersion: v1
 kind: Service
 metadata:
   name: backend-service
-  annotations:
-    cloud.google.com/backend-config: '{"default": "backend-waf-config"}'
+  # Note: The BackendConfig annotation is now on the istio-ingressgateway!
 spec:
   type: ClusterIP
   selector:
@@ -91,11 +77,22 @@ spec:
   - port: 80
     targetPort: 80
 ---
-# 4. Ingress: The Google Cloud Load Balancer!
+# 4. BackendConfig (In istio-system to attach WAF to the istio-ingressgateway)
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: backend-waf-config
+  namespace: istio-system
+spec:
+  securityPolicy:
+    name: "backend-standard-policy"
+---
+# 5. GKE Ingress (The GCLB, deployed in istio-system to route to the gateway)
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: backend-ingress
+  namespace: istio-system
   annotations:
     kubernetes.io/ingress.class: "gce"
 spec:
@@ -103,6 +100,44 @@ spec:
   - secretName: backend-tls
   defaultBackend:
     service:
-      name: backend-service
+      name: istio-ingressgateway
       port:
-        number: 80
+        number: 443
+---
+# 6. Istio Gateway (Terminates the re-encrypted SSL from GCLB)
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: backend-gateway
+  namespace: default
+spec:
+  selector:
+    istio: ingressgateway # use istio default controller
+  servers:
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: backend-tls # Secret must be in istio-system
+    hosts:
+    - "*"
+---
+# 7. Istio VirtualService (Routes from Gateway to the backend-service)
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: backend-vs
+  namespace: default
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - backend-gateway
+  http:
+  - route:
+    - destination:
+        host: backend-service
+        port:
+          number: 80
