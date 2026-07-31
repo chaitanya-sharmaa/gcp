@@ -67,11 +67,22 @@ spec:
         configMap:
           name: backend-data
 ---
+# BackendConfig to attach Cloud Armor WAF
+apiVersion: cloud.google.com/v1
+kind: BackendConfig
+metadata:
+  name: backend-waf-config
+spec:
+  securityPolicy:
+    name: "backend-standard-policy"
+---
 # 3. Service: The internal IP address inside the cluster (ClusterIP)
 apiVersion: v1
 kind: Service
 metadata:
   name: backend-service
+  annotations:
+    cloud.google.com/backend-config: '{"default": "backend-waf-config"}'
 spec:
   type: ClusterIP
   selector:

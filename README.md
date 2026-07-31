@@ -7,12 +7,14 @@ graph TD
     User((User Browser))
 
     subgraph Frontend ["Frontend Edge (Managed by TF Frontend Module)"]
+        WAF1{{"Cloud Armor<br/>Edge Policy"}}
         FLB["Frontend HTTPS Load Balancer<br/>IP: 34.102.230.191"]
         CDN(("Cloud CDN"))
         Bucket[("Cloud Storage Bucket<br/>my-static-frontend-*")]
     end
 
     subgraph Backend ["Backend Edge (Managed by K8s Ingress)"]
+        WAF2{{"Cloud Armor<br/>Standard Policy"}}
         BLB["Backend HTTPS Load Balancer<br/>GCE Ingress"]
     end
 
@@ -31,12 +33,14 @@ graph TD
     end
 
     %% Frontend Flow
-    User -- "1. Download Website" --> FLB
+    User -- "1. Download Website" --> WAF1
+    WAF1 --> FLB
     FLB --> CDN
     CDN --> Bucket
 
     %% Backend Flow
-    User -- "2. Javascript fetch() API" --> BLB
+    User -- "2. Javascript fetch() API" --> WAF2
+    WAF2 --> BLB
     BLB -- "Terminates SSL" --> Ingress
     Ingress -- "Routes Traffic" --> Service
     Service -- "Load Balances" --> Pods

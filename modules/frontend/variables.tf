@@ -13,3 +13,8 @@ variable "ssl_private_key_pem" {
   description = "The SSL private key in PEM format"
   type        = string
 }
+
+variable "edge_security_policy_id" {
+  description = "The ID of the Cloud Armor Edge Security Policy"
+  type        = string
+}

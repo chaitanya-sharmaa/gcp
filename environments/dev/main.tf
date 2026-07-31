@@ -56,10 +56,11 @@ resource "local_file" "tls_crt" {
 }
 
 module "frontend" {
-  source              = "../../modules/frontend"
-  backend_url         = var.backend_url
-  ssl_private_key_pem = tls_private_key.main.private_key_pem
-  ssl_cert_pem        = tls_self_signed_cert.main.cert_pem
+  source                  = "../../modules/frontend"
+  backend_url             = var.backend_url
+  ssl_private_key_pem     = tls_private_key.main.private_key_pem
+  ssl_cert_pem            = tls_self_signed_cert.main.cert_pem
+  edge_security_policy_id = module.network.frontend_edge_policy_id
 }
 
 output "website_url" {
