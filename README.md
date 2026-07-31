@@ -6,28 +6,28 @@ Here is the updated visual representation of the enterprise-grade architecture d
 graph TD
     User((User Browser))
 
-    subgraph Frontend [Frontend Edge (Managed by TF Frontend Module)]
-        FLB[Frontend HTTPS Load Balancer<br/>IP: 34.102.230.191]
-        CDN((Cloud CDN))
-        Bucket[(Cloud Storage Bucket<br/>my-static-frontend-*)]
+    subgraph Frontend ["Frontend Edge (Managed by TF Frontend Module)"]
+        FLB["Frontend HTTPS Load Balancer<br/>IP: 34.102.230.191"]
+        CDN(("Cloud CDN"))
+        Bucket[("Cloud Storage Bucket<br/>my-static-frontend-*")]
     end
 
-    subgraph Backend [Backend Edge (Managed by K8s Ingress)]
-        BLB[Backend HTTPS Load Balancer<br/>GCE Ingress]
+    subgraph Backend ["Backend Edge (Managed by K8s Ingress)"]
+        BLB["Backend HTTPS Load Balancer<br/>GCE Ingress"]
     end
 
-    subgraph VPC [Private Network: learn-gcp-vpc]
-        NAT(Cloud NAT Gateway: gke-nat)
+    subgraph VPC ["Private Network: learn-gcp-vpc"]
+        NAT("Cloud NAT Gateway: gke-nat")
         
-        subgraph GKE [GKE Cluster: my-gke-cluster]
-            Ingress((Kubernetes Ingress<br/>backend-ingress))
-            Service(ClusterIP Service<br/>backend-service)
-            Pods[Nginx API Pods<br/>backend-api]
+        subgraph GKE ["GKE Cluster: my-gke-cluster"]
+            Ingress(("Kubernetes Ingress<br/>backend-ingress"))
+            Service("ClusterIP Service<br/>backend-service")
+            Pods["Nginx API Pods<br/>backend-api"]
         end
     end
 
-    subgraph GoogleVPC [Google Managed Network]
-        DB[(Cloud SQL PostgreSQL<br/>my-postgres-db)]
+    subgraph GoogleVPC ["Google Managed Network"]
+        DB[("Cloud SQL PostgreSQL<br/>my-postgres-db")]
     end
 
     %% Frontend Flow
