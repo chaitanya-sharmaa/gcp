@@ -23,6 +23,7 @@ resource "google_sql_database_instance" "main" {
   name             = "my-postgres-db"
   database_version = "POSTGRES_15"
   region           = var.region
+  deletion_protection = false
   
   # We must wait for the peering connection to finish before creating the DB!
   depends_on = [google_service_networking_connection.private_vpc_connection]

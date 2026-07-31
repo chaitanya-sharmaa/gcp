@@ -74,7 +74,6 @@ resource "google_compute_backend_bucket" "cdn_backend" {
   name                 = "frontend-cdn-backend"
   bucket_name          = google_storage_bucket.static_site.name
   enable_cdn           = true # PRODUCTION GRADE: Turns on global caching!
-  edge_security_policy = var.edge_security_policy_id
 }
 
 # URL Map routes incoming HTTP requests to our backend bucket

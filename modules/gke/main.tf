@@ -3,6 +3,8 @@
 resource "google_container_cluster" "primary" {
   name     = "my-gke-cluster"
   
+  deletion_protection = false
+
   # COST SAVING: Using a single zone (e.g., us-central1-a) instead of a region 
   # allows us to use the GKE Free Tier for the control plane (saves ~$72/month).
   location = var.zone
