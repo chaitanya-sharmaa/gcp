@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-data
+  namespace: {{ .Release.Namespace }}
+data:
+  data.json: |
+    {
+      "status": "success",
+      "message": "Hello from the secure GKE Backend via Istio!",
+      "database_status": "Connected to Cloud SQL via Private IP (Simulated)",
+      "secret_manager_status": "Secret db-password mounted securely at /etc/secrets/db_password.txt via Workload Identity",
+      "records": [
+        {"id": 1, "name": "Chaitanya's Test Record"},
+        {"id": 2, "name": "Istio End-to-End Encryption works!"}
+      ]
+    }
+  default.conf: |
+    server {
+      listen 80;
+      location / {
+        return 200 'Healthy';
+        add_header Content-Type text/plain;
+      }
+      location /api/data {
+        alias /usr/share/nginx/html/data.json;
+        default_type application/json;
+        add_header Access-Control-Allow-Origin *;
+      }
+    }

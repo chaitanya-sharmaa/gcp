@@ -50,7 +50,7 @@ resource "google_container_node_pool" "primary_nodes" {
     # COST SAVING: Spot VMs are unused Google capacity sold at up to a 91% discount.
     # They can be preempted (turned off) at any time, making them perfect for testing!
     spot         = true
-    machine_type = "e2-medium"
+    machine_type = "e2-standard-4"
     disk_size_gb = 50
 
     # PRODUCTION GRADE: Shielded Nodes (Hardened OS)

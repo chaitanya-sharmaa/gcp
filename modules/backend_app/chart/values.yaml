@@ -1,0 +1,9 @@
+projectId: "project-ddfa7a80-7677-4268-95a"
+secretsSaEmail: "gke-secrets-sa@project-ddfa7a80-7677-4268-95a.iam.gserviceaccount.com"
+dbPassword: ""
+staticIpName: "backend-global-ip"
+replicaCount: 2
+image:
+  repository: nginx
+  tag: alpine
+  pullPolicy: IfNotPresent

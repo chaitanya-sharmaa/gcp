@@ -1,0 +1,17 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: backend-ingress
+  namespace: istio-system
+  annotations:
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.global-static-ip-name: {{ .Values.staticIpName | quote }}
+spec:
+  tls:
+  - secretName: backend-tls
+  defaultBackend:
+    service:
+      name: istio-ingressgateway
+      port:
+        number: 80
+

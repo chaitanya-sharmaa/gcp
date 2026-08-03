@@ -1,4 +1,27 @@
-# 1. ConfigMap: Simulates our Backend App Data
+# 1. Kubernetes Service Account with Workload Identity Annotation
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backend-sa
+  namespace: default
+  annotations:
+    # Google Service Account created by Terraform modules/secrets
+    iam.gke.io/gcp-service-account: "gke-secrets-sa@project-ddfa7a80-7677-4268-95a.iam.gserviceaccount.com"
+---
+# 2. SecretProviderClass: Maps Google Secret Manager secret to Pod filesystem
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: gcp-secret-provider
+  namespace: default
+spec:
+  provider: gcp
+  parameters:
+    secrets: |
+      - resourceName: "projects/project-ddfa7a80-7677-4268-95a/secrets/db-password/versions/latest"
+        fileName: "db_password.txt"
+---
+# 3. ConfigMap: Simulates our Backend App Data
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -9,6 +32,7 @@ data:
       "status": "success",
       "message": "Hello from the secure GKE Backend via Istio!",
       "database_status": "Connected to Cloud SQL via Private IP (Simulated)",
+      "secret_manager_status": "Secret db-password mounted securely at /etc/secrets/db_password.txt via Workload Identity",
       "records": [
         {"id": 1, "name": "Chaitanya's Test Record"},
         {"id": 2, "name": "Istio End-to-End Encryption works!"}
@@ -28,7 +52,7 @@ data:
       }
     }
 ---
-# 2. Deployment: The actual containers running our backend
+# 4. Deployment: The actual containers running our backend
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -43,6 +67,7 @@ spec:
       labels:
         app: backend-api
     spec:
+      serviceAccountName: backend-sa
       containers:
       - name: api
         image: nginx:alpine
@@ -55,6 +80,10 @@ spec:
         - name: config-volume
           mountPath: /etc/nginx/conf.d/default.conf
           subPath: default.conf
+        # Mount the Secret Manager secret directly from RAM via CSI Driver:
+        - name: secret-volume
+          mountPath: /etc/secrets
+          readOnly: true
       volumes:
       - name: data-volume
         configMap:
@@ -62,6 +91,13 @@ spec:
       - name: config-volume
         configMap:
           name: backend-data
+      # CSI Volume referencing the SecretProviderClass
+      - name: secret-volume
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "gcp-secret-provider"
 ---
 # 3. Service: The internal IP address inside the cluster (ClusterIP)
 apiVersion: v1

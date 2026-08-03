@@ -35,3 +35,33 @@ resource "google_compute_firewall" "allow_iap_ssh" {
 
   source_ranges = ["35.235.240.0/20"] # IAP IP range
 }
+
+# 3. Allow GKE Master to communicate with Webhooks (Istio, etc.) on Worker Nodes
+resource "google_compute_firewall" "allow_gke_master_to_nodes" {
+  name    = "allow-gke-master-to-nodes"
+  network = google_compute_network.main_vpc.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["15017", "15012", "8443", "443", "8080", "9443"]
+  }
+
+  source_ranges = ["172.16.0.0/28"] # GKE master CIDR block
+}
+
+# 4. Allow Google Cloud Load Balancer & Health Checks
+resource "google_compute_firewall" "allow_gclb_health_checks" {
+  name    = "allow-gclb-health-checks"
+  network = google_compute_network.main_vpc.name
+
+  allow {
+    protocol = "tcp"
+    ports    = ["80", "443", "8080", "15021", "30000-32767"]
+  }
+
+  source_ranges = [
+    "35.191.0.0/16",
+    "130.211.0.0/22"
+  ]
+}
+

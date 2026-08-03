@@ -1,0 +1,33 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: backend-vs
+  namespace: {{ .Release.Namespace }}
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - istio-system/backend-gateway
+  - backend-gateway
+  - mesh
+  http:
+  - corsPolicy:
+      allowOrigins:
+      - regex: ".*"
+      allowMethods:
+      - GET
+      - POST
+      - OPTIONS
+      - HEAD
+      - PUT
+      - DELETE
+      allowHeaders:
+      - "*"
+      maxAge: "24h"
+    route:
+    - destination:
+        host: backend-service.default.svc.cluster.local
+        port:
+          number: 80
+
+
