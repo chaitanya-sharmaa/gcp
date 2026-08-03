@@ -1,0 +1,30 @@
+{{- if .Values.zeroTrust.enabled }}
+# 1. Enforce STRICT mTLS inside the default workload namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default-strict-mtls
+  namespace: {{ .Release.Namespace }}
+spec:
+  mtls:
+    mode: {{ .Values.zeroTrust.peerAuthentication | default "STRICT" }}
+---
+# 2. Enforce Zero-Trust Authorization Policy:
+# Reject any traffic to backend-api that does NOT originate from the authorized Ingress Gateway
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: backend-ingress-only
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: backend-api
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - "cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"
+        - "cluster.local/ns/istio-system/sa/istio-ingressgateway"
+{{- end }}
