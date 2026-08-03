@@ -31,36 +31,76 @@ resource "google_storage_bucket_object" "index_page" {
   name         = "index.html"
   bucket       = google_storage_bucket.static_site.name
   content      = <<EOF
-<html>
+<!DOCTYPE html>
+<html lang="en">
   <head>
+    <meta charset="utf-8">
+    <title>Enterprise GCP Infrastructure - Live Demo</title>
     <style>
-      body { font-family: sans-serif; text-align: center; margin-top: 50px; }
-      #data { margin-top: 20px; padding: 20px; background: #f0f0f0; border-radius: 8px; display: inline-block; }
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; text-align: center; margin-top: 40px; background: #0f172a; color: #f8fafc; }
+      .container { max-width: 700px; margin: 0 auto; padding: 24px; }
+      .card { background: #1e293b; border-radius: 12px; padding: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border: 1px solid #334155; margin-top: 20px; }
+      .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 12px; font-weight: 600; background: #3b82f6; color: white; margin-bottom: 12px; }
+      pre { background: #090d16; padding: 16px; border-radius: 8px; text-align: left; overflow-x: auto; color: #38bdf8; font-size: 13px; line-height: 1.5; border: 1px solid #1e293b; }
+      .btn { display: inline-block; background: #3b82f6; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; border: none; cursor: pointer; transition: background 0.2s; margin-top: 10px; }
+      .btn:hover { background: #2563eb; }
+      .warning-box { background: #451a03; border: 1px solid #b45309; color: #fef3c7; border-radius: 8px; padding: 16px; margin-top: 16px; font-size: 14px; text-align: left; }
     </style>
   </head>
   <body>
-    <h1>🚀 Hello from your Static Frontend!</h1>
-    <p>Served blazing fast via Google Cloud CDN.</p>
-    
-    <div id="data">
-      <h3>Data from Backend (GKE):</h3>
-      <p id="loading">Fetching data from backend...</p>
-      <pre id="result" style="text-align: left;"></pre>
+    <div class="container">
+      <span class="badge">Google Cloud CDN • GKE • Istio Ambient Mesh</span>
+      <h1>🚀 Cloud Infrastructure Live Demo</h1>
+      <p style="color: #94a3b8;">Served globally via Cloud CDN with Zero-Trust mTLS backend.</p>
+
+      <div class="card">
+        <h3>Live Backend Payload (GKE + Cloud SQL + Secret Manager)</h3>
+        <p id="status-text" style="color: #cbd5e1;">Connecting to Backend API...</p>
+        
+        <div id="cert-warning" class="warning-box" style="display: none;">
+          <strong>⚠️ Browser Security Notice (Self-Signed SSL):</strong>
+          <p style="margin: 8px 0;">Because this environment uses a testing self-signed SSL certificate, your browser will block background requests until you accept the certificate for the backend IP.</p>
+          <a id="cert-link" href="#" target="_blank" class="btn">1. Click Here to Accept Backend Certificate ➔</a>
+          <p style="font-size: 12px; margin-top: 8px; color: #fde68a;">Click "Advanced" ➔ "Proceed to unsafe". Then return here and click Retry.</p>
+          <button class="btn" style="background: #10b981;" onclick="fetchData()">2. 🔄 Retry Fetch</button>
+        </div>
+
+        <pre id="result" style="display: none;"></pre>
+      </div>
     </div>
 
     <script>
-      // The Backend URL is injected by Terraform!
       const apiUrl = "${var.backend_url}/api/data";
-      
-      fetch(apiUrl)
-        .then(response => response.json())
-        .then(data => {
-          document.getElementById('loading').style.display = 'none';
-          document.getElementById('result').innerText = JSON.stringify(data, null, 2);
-        })
-        .catch(error => {
-          document.getElementById('loading').innerText = "Backend API is not yet reachable. Error: " + error;
-        });
+      document.getElementById('cert-link').href = apiUrl;
+
+      function fetchData() {
+        const statusText = document.getElementById('status-text');
+        const certWarning = document.getElementById('cert-warning');
+        const result = document.getElementById('result');
+
+        statusText.style.display = 'block';
+        statusText.innerText = "Fetching live data from: " + apiUrl;
+        certWarning.style.display = 'none';
+
+        fetch(apiUrl)
+          .then(res => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json();
+          })
+          .then(data => {
+            statusText.style.display = 'none';
+            certWarning.style.display = 'none';
+            result.style.display = 'block';
+            result.innerText = JSON.stringify(data, null, 2);
+          })
+          .catch(err => {
+            statusText.innerText = "❌ Connection blocked by browser SSL/CORS policy.";
+            certWarning.style.display = 'block';
+          });
+      }
+
+      // Initial fetch on page load
+      fetchData();
     </script>
   </body>
 </html>
