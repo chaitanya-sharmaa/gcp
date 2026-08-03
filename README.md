@@ -1,6 +1,6 @@
 # Enterprise GCP Architecture with Istio Ambient Mesh
 
-This repository provisions an end-to-end, enterprise-grade cloud architecture on Google Cloud Platform (GCP) using **Terraform**, **Kubernetes (GKE)**, and **Istio Ambient Mode** (Sidecar-less Service Mesh).
+This repository provisions a production-grade, zero-trust cloud infrastructure on Google Cloud Platform (GCP) using **Terraform**, **GKE (Google Kubernetes Engine)**, and **Istio Ambient Mode** (Sidecar-less Service Mesh).
 
 ---
 
@@ -8,70 +8,66 @@ This repository provisions an end-to-end, enterprise-grade cloud architecture on
 
 ```mermaid
 graph TD
-    User((User Browser))
+    User((Client / Browser))
 
-    subgraph FrontendEdge ["Frontend Edge (CDN & Static Hosting)"]
-        WAF1{{"Cloud Armor Edge Policy"}}
-        FLB["Frontend HTTPS Load Balancer<br/>Global Anycast IP"]
-        CDN(("Cloud CDN (Edge Cache)"))
-        Bucket[("Cloud Storage Bucket<br/>Static Frontend Website")]
+    subgraph FrontendEdge ["1. Frontend Edge (Static Hosting & Cloud CDN)"]
+        FLB["Frontend HTTPS Load Balancer<br/>(Global Anycast IP)"]
+        CDN(("Google Cloud CDN<br/>(Edge Caching)"))
+        Bucket[("Cloud Storage Bucket<br/>(Static SPA index.html)")]
     end
 
-    subgraph BackendEdge ["Backend Edge (GCLB & Ingress)"]
-        WAF2{{"Cloud Armor Security Policy"}}
-        BLB["Backend HTTPS Load Balancer<br/>Static Global IP"]
+    subgraph BackendEdge ["2. Backend Edge (GCLB Ingress)"]
+        BLB["Backend HTTPS Load Balancer<br/>(Global Static IP: 8.232.214.150)"]
     end
 
     subgraph VPC ["Custom VPC: learn-gcp-vpc (10.0.0.0/16)"]
-        NAT("Cloud NAT Gateway: gke-nat<br/>(Secure Egress)")
+        NAT("Cloud NAT Gateway: gke-nat<br/>(Secure Egress to Internet)")
         
-        subgraph GKE ["GKE Private Cluster (e2-standard-4 Nodes)"]
+        subgraph GKE ["GKE Private Cluster (us-central1-a • e2-standard-4 Nodes)"]
             
-            subgraph KubeSystem ["kube-system Namespace"]
-                CNI["Istio CNI DaemonSet<br/>(Traffic Interception)"]
+            subgraph KubeSystem ["kube-system Namespace (Node Daemons • system-node-critical)"]
+                CNI["istio-cni DaemonSet<br/>(eBPF / iptables Traffic Capture)"]
+                ZTunnel["ztunnel DaemonSet<br/>(Rust L4 Zero-Trust Proxy • Port 15008 HBONE)"]
             end
 
-            subgraph IstioSystem ["istio-system Namespace (Ambient Mesh)"]
-                Istiod["istiod (Control Plane)"]
-                Gateway["Istio Ingress Gateway<br/>(GCLB Backend)"]
-                ZTunnel["ztunnel DaemonSet<br/>(Rust L4 Zero-Trust Proxy)"]
+            subgraph IstioSystem ["istio-system Namespace (Control Plane & Ingress)"]
+                Istiod["istiod (Ambient Profile)<br/>(CA & xDS Engine • caTrustedNodeAccounts)"]
+                Gateway["istio-ingressgateway<br/>(GCLB HTTP Backend • Port 80 / 443)"]
             end
 
-            subgraph DefaultNS ["default Namespace (Workload)"]
-                Service("backend-service (ClusterIP)")
-                Pods["backend-api Pods<br/>(Zero Sidecars • Pure Container)"]
+            subgraph DefaultNS ["default Namespace (dataplane-mode: ambient)"]
+                Service("backend-service (ClusterIP: 80)")
+                Pods["backend-api Pods (1/1 Ready)<br/>(Zero Sidecars • Pure Container)"]
             end
 
         end
     end
 
-    subgraph GoogleServices ["Google Managed Services"]
-        DB[("Cloud SQL PostgreSQL<br/>(Private IP via VPC Peering)")]
-        SM["Secret Manager<br/>(DB Credentials via Workload Identity)"]
+    subgraph GoogleServices ["Google Managed Services (Zero Public IPs)"]
+        DB[("Cloud SQL PostgreSQL<br/>(Private IP via VPC Peering 10.0.0.0/16)")]
+        SM["Google Secret Manager<br/>(DB Credentials via Workload Identity)"]
     end
 
     %% Flow 1: Frontend Website Loading
-    User -- "1. Visit Website (HTTPS)" --> WAF1
-    WAF1 --> FLB
+    User -- "1. Visit Frontend (HTTPS :443)" --> FLB
     FLB --> CDN
     CDN --> Bucket
 
     %% Flow 2: API Request
-    User -- "2. API fetch() Request" --> WAF2
-    WAF2 --> BLB
-    BLB -- "Terminates Public TLS" --> Gateway
-    Gateway -- "Routes via VirtualService" --> ZTunnel
-    ZTunnel -- "Encrypted L4 mTLS (HBONE)" --> Pods
+    User -- "2. API fetch('/api/data')" --> BLB
+    BLB -- "Terminates Public TLS<br/>Forwards HTTP :80 inside VPC" --> Gateway
+    Gateway -- "Routes via VirtualService & CORS" --> ZTunnel
+    ZTunnel -- "Encrypted L4 mTLS (HBONE :15008)<br/>SPIFFE: spiffe://cluster.local/ns/default/sa/backend-sa" --> Pods
 
-    %% Control Plane Stream
-    Istiod -. "xDS Config" .-> ZTunnel
-    CNI -. "Redirects Node Traffic" .-> ZTunnel
+    %% Control Plane & Node Daemon Orchestration
+    Istiod -. "xDS Config & SPIFFE CA Signer" .-> ZTunnel
+    CNI -. "Intercepts Kernel Traffic" .-> ZTunnel
 
     %% Flow 3: Security & DB Access
-    Pods -. "3. Read Credentials" .-> SM
-    Pods -. "4. Private SQL Query" .-> DB
+    Pods -. "3. Fetch db-password (Workload Identity)" .-> SM
+    Pods -. "4. Execute SQL Queries (Private IP)" .-> DB
 
-    %% Outbound
+    %% Outbound Internet
     GKE -. "Secure Outbound Access" .-> NAT
 
     %% Styling
@@ -81,7 +77,7 @@ graph TD
     classDef db fill:#EA4335,stroke:#fff,stroke-width:2px,color:#fff;
     classDef storage fill:#FBBC05,stroke:#fff,stroke-width:2px,color:#000;
     
-    class FLB,BLB,WAF1,WAF2 edge;
+    class FLB,BLB edge;
     class Istiod,Gateway,ZTunnel,CNI mesh;
     class Pods,Service compute;
     class DB,SM db;
@@ -90,54 +86,131 @@ graph TD
 
 ---
 
-## 🚀 Key Architectural Innovations
+## 🔄 Detailed Request Lifecycle (Sequence Diagram)
 
-### 1. Istio Ambient Mode (Sidecar-less Mesh)
-* **Zero Pod Bloat:** Unlike classic Istio which injects an `istio-proxy` Envoy container into every application pod, Ambient mode runs pure single-container pods (`1/1 Ready`).
-* **Node-Level `ztunnel`:** A dedicated Rust-based zero-trust tunnel daemonset runs on each node, handling L4 mutual TLS (mTLS) and telemetry with minimal memory footprint (~15MB vs ~150MB per pod).
-* **`istio-cni` in `kube-system`:** Transparently captures pod network traffic at the kernel level and redirects it to `ztunnel` without mutating pod specifications.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Browser / User
+    participant GCLB as Google Cloud HTTPS LB
+    participant Ingress as istio-ingressgateway (istio-system)
+    participant ZTunnelSrc as ztunnel (Source Node)
+    participant ZTunnelDst as ztunnel (Destination Node)
+    participant Backend as backend-api Pod (default)
+    participant SM as Secret Manager
+    participant DB as Cloud SQL (PostgreSQL)
 
-### 2. Dual-Layer Edge Security & Performance
-* **Frontend:** Google Cloud Armor WAF + Cloud CDN caching on Cloud Storage bucket objects.
-* **Backend:** Google Cloud Armor + External HTTP(S) Load Balancer bound to a reserved static IP, routing to the GKE Ingress Gateway.
+    %% Flow: Edge to Mesh
+    Client->>GCLB: HTTPS GET /api/data (Port 443)
+    Note over GCLB: Terminates Public TLS using SSL Certificate
+    GCLB->>Ingress: HTTP GET /api/data (Port 80 via VPC)
+    
+    %% Flow: Ambient Mesh L4 mTLS
+    Note over Ingress: Evaluates Gateway & VirtualService CORS Policy
+    Ingress->>ZTunnelSrc: Outbound Traffic Intercepted (istio-cni)
+    Note over ZTunnelSrc: Wraps in HBONE Tunnel (Port 15008)<br/>Authenticates SPIFFE SAN Identity
+    ZTunnelSrc->>ZTunnelDst: mTLS Handshake over HBONE (:15008)
+    Note over ZTunnelDst: Decrypts & Verifies Client Identity
+    ZTunnelDst->>Backend: Plain HTTP to localhost (Port 80)
 
-### 3. Enterprise Security & Secrets
-* **Workload Identity Federation:** No static GCP service account keys in pods. The backend pod authenticates directly to Google Cloud APIs using Kubernetes Service Accounts.
-* **Secret Manager Integration:** Database credentials are securely injected at runtime from GCP Secret Manager.
-* **Private Network Isolation:** GKE cluster and Cloud SQL instances have 0 public IPs; communication traverses internal VPC peering and Cloud NAT handles outbound traffic.
+    %% Flow: Workload Identity & Database
+    Note over Backend: Pod startup initializes DB connection
+    Backend->>SM: Authenticate via Workload Identity & Read db-password
+    SM-->>Backend: Secure DB Password
+    Backend->>DB: Query over Private IP (VPC Peering)
+    DB-->>Backend: Query Results
+
+    %% Return
+    Backend-->>ZTunnelDst: HTTP 200 OK + JSON
+    ZTunnelDst-->>ZTunnelSrc: Encrypted Response
+    ZTunnelSrc-->>Ingress: Decrypted Response
+    Ingress-->>GCLB: HTTP 200 + CORS Headers
+    GCLB-->>Client: HTTPS 200 OK (Data Rendered on Frontend)
+```
+
+---
+
+## 🌟 Key Architectural Highlights
+
+### 1. Istio Ambient Mode (Sidecar-less Service Mesh)
+* **Zero Pod Restarts & Bloat:** No `istio-proxy` Envoy sidecar containers injected into application pods (`1/1 Ready`).
+* **Node-Level `ztunnel` in `kube-system`:** Deployed with `system-node-critical` priority class to guarantee scheduling on all worker nodes.
+* **Kernel Traffic Interception:** `istio-cni` transparently routes pod traffic to `ztunnel` using Linux kernel routing (`eBPF`/`iptables`).
+* **Authenticated Node Proxying:** Configured `istiod` with `caTrustedNodeAccounts = ["kube-system/ztunnel", "istio-system/ztunnel"]` for secure SPIFFE identity certificate generation.
+
+### 2. Edge-to-Mesh TLS Termination Pattern
+* **Public Internet ➔ GCLB:** Encrypted via **HTTPS (Port 443)** using SSL certificates.
+* **GCLB ➔ Ingress Gateway:** High-performance **HTTP (Port 80)** across Google's private, encrypted internal VPC backbone, eliminating redundant double-encryption overhead.
+* **Ingress Gateway ➔ Workload Pods:** Fully zero-trust encrypted with **mutual TLS (mTLS)** over **HBONE (Port 15008)** with cryptographic SPIFFE identities (`spiffe://cluster.local/ns/default/sa/backend-sa`).
+
+### 3. Enterprise Security & Zero-Trust
+* **Workload Identity Federation:** No static service account keys in pods. Kubernetes Service Accounts bind directly to GCP IAM roles.
+* **GCP Secret Manager:** Database passwords dynamically fetched at runtime.
+* **Private Network Isolation:** GKE cluster and Cloud SQL instances have 0 public IPs; communication traverses internal VPC peering and Cloud NAT handles outbound internet egress.
+* **CORS Support:** Native cross-origin resource sharing (`corsPolicy`) configured on Istio `VirtualService` to seamlessly connect the Cloud CDN frontend with the backend API.
 
 ---
 
 ## 📁 Repository Structure
 
-```
+```text
 ├── environments/
-│   └── dev/                  # Root Terraform environment (wires all modules)
-│       ├── main.tf
-│       ├── variables.tf
-│       └── outputs.tf
+│   └── dev/                       # Root Terraform environment
+│       ├── main.tf                # Module orchestration & outputs
+│       ├── variables.tf           # Environment variables
+│       └── provider.tf            # Google, Helm, Kubernetes, and TLS providers
 ├── modules/
-│   ├── network/              # VPC, Subnets, Firewalls (GKE Master & GCLB), Cloud NAT
-│   ├── database/             # Cloud SQL PostgreSQL & Private Service Access
-│   ├── gke/                  # GKE Private Cluster & e2-standard-4 Node Pools
-│   ├── secrets/              # GCP Secret Manager & Workload Identity IAM bindings
-│   ├── frontend/             # Cloud Storage, Cloud CDN, HTTPS Load Balancer, WAF
-│   ├── istio/                # Istio Base, Ambient CNI, istiod, ztunnel, and Ingress
-│   └── backend_app/          # Helm chart for Backend Deployment & Gateway routing
+│   ├── network/                   # VPC, Subnets, Firewalls (GCLB & GKE), Cloud NAT
+│   ├── database/                  # Cloud SQL PostgreSQL & Private VPC Connection
+│   ├── gke/                       # GKE Private Cluster & Node Pools
+│   ├── secrets/                   # Secret Manager & Workload Identity IAM
+│   ├── frontend/                  # Cloud Storage, Cloud CDN, HTTPS Load Balancer
+│   ├── istio/                     # Istio Base, CNI, istiod (Ambient), ztunnel, and Gateway
+│   └── backend_app/               # Helm Chart for Backend Deployment, Service, Ingress, VS
 ```
 
 ---
 
-## 🛠️ Verification & Testing Commands
+## 🛠️ Verification & Testing
+
+### 1. Verify Istio Ambient Components
+```bash
+# Check ztunnel and istio-cni daemons
+kubectl get daemonsets,pods -n kube-system -l app=ztunnel
+kubectl get daemonsets,pods -n kube-system -l app=istio-cni
+
+# Check istiod control plane
+kubectl get pods -n istio-system -l app=istiod
+```
+
+### 2. Verify Backend Pods (Sidecar-less)
+```bash
+# Confirm pods are 1/1 (Zero Sidecars)
+kubectl get pods -n default -l app=backend-api
+```
+
+### 3. Verify Load Balancer Health & Ingress
+```bash
+kubectl describe ingress backend-ingress -n istio-system | grep backends
+# Output: {"k8s1-...-istio-ingressgateway-80-...": "HEALTHY"}
+```
+
+### 4. Test Public Endpoints
+```bash
+# Test Backend API via GCLB + Ambient Mesh
+curl -k -i https://<BACKEND_STATIC_IP>/api/data
+
+# Test Frontend Website via Cloud CDN
+curl -k -i https://<FRONTEND_STATIC_IP>
+```
+
+---
+
+## 🧹 Teardown
+
+To destroy all cloud resources when finished testing:
 
 ```bash
-# 1. Verify Istio Ambient Mode components
-kubectl get daemonsets,pods -n kube-system -l app=istio-cni
-kubectl get daemonsets,pods -n istio-system -l app=ztunnel
-
-# 2. Verify backend pod is running without sidecars (1/1)
-kubectl get pods -l app=backend-api
-
-# 3. Test API connectivity
-curl -k https://<BACKEND_STATIC_IP>/api/data
+cd environments/dev
+terraform destroy -auto-approve
 ```
